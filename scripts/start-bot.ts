@@ -1,5 +1,6 @@
 import { startBot } from '../src/bot';
 import * as dotenv from 'dotenv';
+import * as http from 'http';
 
 // Load environment variables (supports both .env.local and .env for production)
 dotenv.config({ path: '.env.local' });
@@ -16,6 +17,22 @@ if (!process.env.TELEGRAM_BOT_TOKEN) {
 if (!process.env.REDIS_URL) {
   console.warn('⚠️ Warning: REDIS_URL is not set. Defaulting to redis://localhost:6379');
 }
+
+// Create a simple HTTP server for health checks (Koyeb requires this)
+const PORT = process.env.PORT || 8000;
+const server = http.createServer((req, res) => {
+  if (req.url === '/health' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('OK - Bot is running');
+  } else {
+    res.writeHead(404);
+    res.end('Not Found');
+  }
+});
+
+server.listen(PORT, () => {
+  console.log(`[Health] Health check server running on port ${PORT}`);
+});
 
 // Start the bot
 startBot().catch((err) => {
