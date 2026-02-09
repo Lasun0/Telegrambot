@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "outDir": "./dist",
+    "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "moduleResolution": "node"
+  },
+  "include": [
+    "src/bot/**/*",
+    "src/queue/**/*",
+    "src/lib/serverTrimmer.ts",
+    "src/lib/userSettings.ts",
+    "scripts/start-bot.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/app/**/*",
+    "src/components/**/*"
+  ]
+}
