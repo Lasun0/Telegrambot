@@ -19,9 +19,10 @@ export async function handleStart(ctx: Context) {
     `I am the Clean Class Recorder Bot 🤖\n\n` +
     `I can help you process class recordings, summarize them, and extract key points using advanced AI.\n\n` +
     `*How to use:*\n` +
-    `1. Send me a video file (up to 2GB)\n` +
-    `2. I'll process it using ${getModelDisplayName(settings.model)}\n` +
-    `3. You'll get a summary and trimmed clips\n\n` +
+    `1. Send me a video file (up to 20MB)\n` +
+    `2. *OR* paste a **direct download link** for larger videos (up to 2GB)\n` +
+    `3. I'll process it using ${getModelDisplayName(settings.model)}\n` +
+    `4. You'll get a summary and trimmed clips\n\n` +
     `*Commands:*\n` +
     `/settings - Change AI provider & model\n` +
     `/status - Check your current jobs\n` +
@@ -57,15 +58,15 @@ export async function handleSettings(ctx: Context) {
 export async function handleHelp(ctx: Context) {
   await ctx.reply(
     `🆘 *Help*\n\n` +
-    `Send any video file to start processing. The bot supports MP4, MOV, MKV, and WebM formats.\n\n` +
+    `You can start processing by sending a video file or a direct download link.\n\n` +
+    `*File Limits:*\n` +
+    `• Direct Upload: Up to **20MB**\n` +
+    `• Download Link: Up to **2GB** (Paste the URL in chat)\n\n` +
     `*Features:*\n` +
-    `• AI Summarization\n` +
-    `• Chapter extraction\n` +
-    `• Smart trimming\n` +
-    `• Multi-provider support (Gemini, OpenAI)\n\n` +
-    `*Large Videos:*\n` +
-    `For videos > 500MB, the system automatically uses chunked processing to handle them efficiently.\n\n` +
-    `If you encounter issues, try forwarding the message to the developer.`,
+    `• AI Summarization & Chapter extraction\n` +
+    `• Smart trimming of essential content\n` +
+    `• Support for MP4, MOV, MKV, and WebM\n\n` +
+    `If the video is over 500MB, the system uses chunked processing for better accuracy.`,
     { parse_mode: 'Markdown' }
   );
 }

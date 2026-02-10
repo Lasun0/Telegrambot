@@ -41,6 +41,12 @@ bot.command('status', handleStatus);
 
 // Message handlers
 bot.on(['video', 'document'], handleVideoMessage);
+bot.on('text', (ctx) => {
+  const text = ctx.message.text;
+  if (text.startsWith('http://') || text.startsWith('https://')) {
+    return handleVideoMessage(ctx);
+  }
+});
 
 // Callback query handlers
 bot.on('callback_query', handleCallback);
