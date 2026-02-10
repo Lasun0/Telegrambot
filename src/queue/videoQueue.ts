@@ -7,101 +7,68 @@ import { Queue, QueueEvents } from 'bullmq'
 import IORedis from 'ioredis'
 import { VideoJob, QueueStatus } from './types'
 
-// Redis connection singleton
-let redisConnection: IORedis | null = null
-let connectionInitialized = false
-
-// Create a new connection with shared configuration
-function createRedisConnection(): IORedis {
+/**
+ * Get Redis connection options for BullMQ.
+ * BullMQ requires each component (Queue, Worker, QueueEvents) to have
+ * its own connection. Passing options (not an instance) lets BullMQ
+ * manage connections internally.
+ */
+export function getRedisOptions(): IORedis.RedisOptions {
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
 
-  const baseOptions = {
+  const baseOptions: IORedis.RedisOptions = {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
     enableOfflineQueue: true,
-    lazyConnect: false,
-    keepAlive: 30000, // Keep connection alive
-    connectTimeout: 30000, // Increased timeout for slower connections
-    commandTimeout: 30000, // Add command timeout
+    keepAlive: 30000,
+    connectTimeout: 30000,
     retryStrategy: (times: number) => {
-      const maxRetries = 20 // Increased retries
+      const maxRetries = 20
       if (times > maxRetries) {
         console.error(`[Redis] Max retry attempts reached`)
         return null
       }
-      const delay = Math.min(times * 2000, 30000) // Exponential backoff up to 30s
+      const delay = Math.min(times * 2000, 30000)
       console.log(`[Redis] Retry attempt ${times}/${maxRetries}, waiting ${delay}ms`)
       return delay
     },
     reconnectOnError: (err: Error) => {
-      console.log('[Redis] Reconnect on error triggered:', err.message)
-      const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'ECONNREFUSED']
-      return targetErrors.some(e => err.message.includes(e)) ? 1 : false
-    },
-    autoResubscribe: true,
-    autoResendUnfulfilledCommands: true
+      const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE']
+      if (targetErrors.some(e => err.message.includes(e))) {
+        console.log('[Redis] Reconnecting due to:', err.message)
+        return 1
+      }
+      return false
+    }
   }
 
-  let connection: IORedis
-
-  // Parse Redis URL for Upstash compatibility
+  // Parse Redis URL for TLS (Upstash, Redis Cloud, etc.)
   if (redisUrl.startsWith('rediss://')) {
     const url = new URL(redisUrl)
-    connection = new IORedis({
+    return {
       ...baseOptions,
       host: url.hostname,
       port: parseInt(url.port) || 6379,
       password: url.password,
       username: url.username || undefined,
-      family: 4, // Force IPv4
+      family: 4,
       tls: {
         rejectUnauthorized: false,
         servername: url.hostname
       }
-    })
-  } else {
-    connection = new IORedis(redisUrl, {
-      ...baseOptions,
-      family: 4 // Force IPv4
-    })
-  }
-
-  connection.on('error', (err) => {
-    console.error('[Redis] Connection error:', err.message)
-  })
-
-  connection.on('connect', () => {
-    console.log('[Redis] Connected successfully')
-  })
-
-  connection.on('ready', () => {
-    console.log('[Redis] Ready to accept commands')
-  })
-
-  connection.on('close', () => {
-    console.warn('[Redis] Connection closed, will attempt to reconnect')
-  })
-
-  connection.on('reconnecting', (delay: number) => {
-    console.log(`[Redis] Reconnecting in ${delay}ms...`)
-  })
-
-  connection.on('end', () => {
-    console.warn('[Redis] Connection ended')
-  })
-
-  return connection
-}
-
-export function getRedisConnection(): IORedis {
-  if (!redisConnection || redisConnection.status === 'end' || redisConnection.status === 'close') {
-    if (connectionInitialized && redisConnection) {
-      console.log('[Redis] Recreating connection due to status:', redisConnection.status)
     }
-    redisConnection = createRedisConnection()
-    connectionInitialized = true
   }
-  return redisConnection
+
+  // Parse non-TLS Redis URL
+  const url = new URL(redisUrl)
+  return {
+    ...baseOptions,
+    host: url.hostname,
+    port: parseInt(url.port) || 6379,
+    password: url.password || undefined,
+    username: url.username || undefined,
+    family: 4
+  }
 }
 
 // Queue name
@@ -114,7 +81,7 @@ let queueEvents: QueueEvents | null = null
 export function getVideoQueue(): Queue<VideoJob> {
   if (!videoQueue) {
     videoQueue = new Queue<VideoJob>(QUEUE_NAME, {
-      connection: getRedisConnection(), // Reuse the shared connection
+      connection: getRedisOptions(),
       defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -122,11 +89,11 @@ export function getVideoQueue(): Queue<VideoJob> {
           delay: 5000
         },
         removeOnComplete: {
-          count: 100, // Keep last 100 completed jobs
-          age: 24 * 3600 // Remove after 24 hours
+          count: 100,
+          age: 24 * 3600
         },
         removeOnFail: {
-          count: 50 // Keep last 50 failed jobs for debugging
+          count: 50
         }
       }
     })
@@ -140,7 +107,7 @@ export function getVideoQueue(): Queue<VideoJob> {
 export function getQueueEvents(): QueueEvents {
   if (!queueEvents) {
     queueEvents = new QueueEvents(QUEUE_NAME, {
-      connection: getRedisConnection() // Reuse the shared connection
+      connection: getRedisOptions()
     })
   }
 
@@ -248,11 +215,6 @@ export async function closeQueue(): Promise<void> {
   if (videoQueue) {
     await videoQueue.close()
     videoQueue = null
-  }
-
-  if (redisConnection) {
-    await redisConnection.quit()
-    redisConnection = null
   }
 
   console.log('[Queue] Cleaned up queue resources')

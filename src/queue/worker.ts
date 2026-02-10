@@ -7,7 +7,7 @@ import { Worker, Job } from 'bullmq'
 import { Telegraf } from 'telegraf'
 import * as fs from 'fs'
 import * as path from 'path'
-import { getRedisConnection } from './videoQueue'
+import { getRedisOptions } from './videoQueue'
 import { VideoJob, JobProgress, JOB_STAGES } from './types'
 import { trimVideoWithFFmpeg } from '../lib/serverTrimmer'
 import { formatSummaryMessage, formatChaptersMessage } from '../bot/utils/messageFormatter'
@@ -540,11 +540,8 @@ async function processJob(job: Job<VideoJob>): Promise<void> {
  * Start the worker
  */
 export function startWorker(): Worker<VideoJob> {
-  // Import createRedisConnection to create a dedicated connection for the worker
-  const { getRedisConnection } = require('./videoQueue')
-
   const worker = new Worker<VideoJob>(QUEUE_NAME, processJob, {
-    connection: getRedisConnection(), // Worker gets its own connection
+    connection: getRedisOptions(),
     concurrency: 1, // Process one video at a time
     limiter: {
       max: 1,
