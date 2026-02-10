@@ -20,6 +20,15 @@ export function getRedisOptions(): RedisOptions {
     maxRetriesPerRequest: null, // Required by BullMQ
     enableReadyCheck: false,    // Recommended for cloud Redis
     enableOfflineQueue: true,
+    connectTimeout: 30000,      // 30 seconds connection timeout
+    disconnectTimeout: 2000,
+    keepAlive: 10000,           // Send keep-alive every 10s
+    family: 4,                  // Force IPv4
+    retryStrategy: (times) => {
+      // Exponential backoff with a cap at 10 seconds
+      const delay = Math.min(times * 100, 10000);
+      return delay;
+    }
   }
 
   // Parse Redis URL for TLS (Upstash, Redis Cloud, etc.)
@@ -31,7 +40,6 @@ export function getRedisOptions(): RedisOptions {
       port: parseInt(url.port) || 6379,
       password: url.password,
       username: url.username || undefined,
-      family: 4,
       tls: {
         rejectUnauthorized: false,
         servername: url.hostname
@@ -40,14 +48,18 @@ export function getRedisOptions(): RedisOptions {
   }
 
   // Parse non-TLS Redis URL
-  const url = new URL(redisUrl)
-  return {
-    ...baseOptions,
-    host: url.hostname,
-    port: parseInt(url.port) || 6379,
-    password: url.password || undefined,
-    username: url.username || undefined,
-    family: 4
+  try {
+    const url = new URL(redisUrl)
+    return {
+      ...baseOptions,
+      host: url.hostname,
+      port: parseInt(url.port) || 6379,
+      password: url.password || undefined,
+      username: url.username || undefined,
+    }
+  } catch (e) {
+    // Fallback if URL parsing fails
+    return baseOptions;
   }
 }
 
