@@ -4,7 +4,7 @@
  */
 
 import { Queue, QueueEvents } from 'bullmq'
-import IORedis from 'ioredis'
+import { RedisOptions } from 'ioredis'
 import { VideoJob, QueueStatus } from './types'
 
 /**
@@ -13,10 +13,10 @@ import { VideoJob, QueueStatus } from './types'
  * its own connection. Passing options (not an instance) lets BullMQ
  * manage connections internally.
  */
-export function getRedisOptions(): IORedis.RedisOptions {
+export function getRedisOptions(): RedisOptions {
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
 
-  const baseOptions: IORedis.RedisOptions = {
+  const baseOptions: RedisOptions = {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
     enableOfflineQueue: true,
