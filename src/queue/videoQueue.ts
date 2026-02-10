@@ -17,29 +17,9 @@ export function getRedisOptions(): RedisOptions {
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
 
   const baseOptions: RedisOptions = {
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
+    maxRetriesPerRequest: null, // Required by BullMQ
+    enableReadyCheck: false,    // Recommended for cloud Redis
     enableOfflineQueue: true,
-    keepAlive: 30000,
-    connectTimeout: 30000,
-    retryStrategy: (times: number) => {
-      const maxRetries = 20
-      if (times > maxRetries) {
-        console.error(`[Redis] Max retry attempts reached`)
-        return null
-      }
-      const delay = Math.min(times * 2000, 30000)
-      console.log(`[Redis] Retry attempt ${times}/${maxRetries}, waiting ${delay}ms`)
-      return delay
-    },
-    reconnectOnError: (err: Error) => {
-      const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE']
-      if (targetErrors.some(e => err.message.includes(e))) {
-        console.log('[Redis] Reconnecting due to:', err.message)
-        return 1
-      }
-      return false
-    }
   }
 
   // Parse Redis URL for TLS (Upstash, Redis Cloud, etc.)
