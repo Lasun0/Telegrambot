@@ -155,7 +155,9 @@ async function processWithFileAPI(
       'X-Goog-Upload-Offset': '0',
       'X-Goog-Upload-Command': 'upload, finalize'
     },
-    body: fileStream as any // Node 18+ fetch supports streams
+    body: fileStream as any,
+    // @ts-ignore - duplex is required for streaming bodies in Node.js fetch
+    duplex: 'half'
   })
 
   if (!uploadResponse.ok) throw new Error(`Upload failed: ${await uploadResponse.text()}`)
@@ -250,15 +252,30 @@ async function processJob(job: Job<VideoJob>): Promise<void> {
     }
 
     await updateProgress({ stage: 'complete', progress: 100, message: 'Processing complete!' })
-    if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath)
+
+    // Only cleanup on success
+    if (fs.existsSync(videoPath)) {
+      try { fs.unlinkSync(videoPath); } catch (e) {}
+    }
     if (outputVideoPath && fs.existsSync(outputVideoPath)) {
-      setTimeout(() => { if (fs.existsSync(outputVideoPath!)) fs.unlinkSync(outputVideoPath!) }, 60000)
+      setTimeout(() => {
+        try { if (fs.existsSync(outputVideoPath!)) fs.unlinkSync(outputVideoPath!); } catch (e) {}
+      }, 60000)
     }
   } catch (error: any) {
-    console.error(`[Worker] Job failed:`, error.message)
-    await updateProgress({ stage: 'error', progress: 0, message: error.message })
-    if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath)
-    throw error
+    console.error(`[Worker] Job ${job.id} failed:`, error.message)
+    await updateProgress({ stage: 'error', progress: 0, message: `Error: ${error.message}` })
+
+    // ONLY delete the source file if we have no retries left
+    const maxAttempts = (job.opts.attempts as number) || 1;
+    if (job.attemptsMade >= maxAttempts) {
+      console.log(`[Worker] Job ${job.id} exhausted all attempts, cleaning up file.`);
+      if (fs.existsSync(videoPath)) {
+        try { fs.unlinkSync(videoPath); } catch (e) {}
+      }
+    }
+
+    throw error // Re-throw to let BullMQ handle retry logic
   }
 }
 
