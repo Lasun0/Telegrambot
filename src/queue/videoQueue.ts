@@ -125,10 +125,8 @@ export async function addVideoJob(job: VideoJob): Promise<{ jobId: string; posit
     throw new Error(`Queue is full (${waitingCount}/${maxQueueSize}). Please try again later.`)
   }
 
-  // Add job with priority based on FIFO
-  const addedJob = await queue.add('process-video', job, {
-    priority: Date.now() // Lower = higher priority, so earlier jobs have priority
-  })
+  // Add job (FIFO is default in BullMQ)
+  const addedJob = await queue.add('process-video', job);
 
   // Get position in queue
   const position = await getJobPosition(addedJob.id!)

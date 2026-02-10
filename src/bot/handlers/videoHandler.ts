@@ -83,11 +83,20 @@ export async function handleVideoMessage(ctx: Context) {
 
     // Download Logic (for both Link and Telegram)
     const writer = fs.createWriteStream(videoPath);
+
+    // Add logic to handle Google Drive confirmation for large files
+    let finalUrl = downloadUrl;
+    if (finalUrl?.includes('drive.google.com') && !finalUrl.includes('confirm=')) {
+      if (finalUrl.includes('?')) finalUrl += '&confirm=t';
+      else finalUrl += '?confirm=t';
+    }
+
     const response = await axios({
-      url: downloadUrl,
+      url: finalUrl,
       method: 'GET',
       responseType: 'stream',
-      timeout: 30000, // 30s timeout for connection
+      timeout: 60000, // Increased to 60s
+      maxRedirects: 5,
     });
 
     // For links, check Content-Length if available
