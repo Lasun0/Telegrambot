@@ -7,6 +7,7 @@ import { Worker, Job } from 'bullmq'
 import { Telegraf } from 'telegraf'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as http from 'http'
 import { getRedisOptions } from './videoQueue'
 import { VideoJob, JobProgress, JOB_STAGES } from './types'
 import { trimVideoWithFFmpeg } from '../lib/serverTrimmer'
@@ -568,17 +569,31 @@ export function startWorker(): Worker<VideoJob> {
 
 // Run worker if executed directly
 if (require.main === module) {
-  console.log('[Worker] Starting video processing worker...')
-  startWorker()
+  // Minimal health check server to satisfy Koyeb
+  const PORT = parseInt(process.env.PORT || '8000', 10);
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Healthy');
+  });
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Health] Worker health check server listening on 0.0.0.0:${PORT}`);
+    console.log('[Health] Ready');
+  });
+
+  console.log('[Worker] Starting video processing worker...');
+  startWorker();
 
   // Handle graceful shutdown
   process.on('SIGTERM', async () => {
-    console.log('[Worker] Received SIGTERM, shutting down...')
-    process.exit(0)
-  })
+    console.log('[Worker] Received SIGTERM, shutting down...');
+    server.close();
+    process.exit(0);
+  });
 
   process.on('SIGINT', async () => {
-    console.log('[Worker] Received SIGINT, shutting down...')
-    process.exit(0)
-  })
+    console.log('[Worker] Received SIGINT, shutting down...');
+    server.close();
+    process.exit(0);
+  });
 }

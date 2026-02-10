@@ -4,63 +4,60 @@
  */
 
 import { Queue, QueueEvents } from 'bullmq'
-import { RedisOptions } from 'ioredis'
+import IORedis, { RedisOptions } from 'ioredis'
 import { VideoJob, QueueStatus } from './types'
 
 /**
  * Get Redis connection options for BullMQ.
- * BullMQ requires each component (Queue, Worker, QueueEvents) to have
- * its own connection. Passing options (not an instance) lets BullMQ
- * manage connections internally.
  */
 export function getRedisOptions(): RedisOptions {
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
 
-  const baseOptions: RedisOptions = {
-    maxRetriesPerRequest: null, // Required by BullMQ
-    enableReadyCheck: false,    // Recommended for cloud Redis
-    enableOfflineQueue: true,
-    connectTimeout: 30000,      // 30 seconds connection timeout
-    disconnectTimeout: 2000,
-    keepAlive: 10000,           // Send keep-alive every 10s
-    family: 4,                  // Force IPv4
-    retryStrategy: (times) => {
-      // Exponential backoff with a cap at 10 seconds
-      const delay = Math.min(times * 100, 10000);
-      return delay;
-    }
-  }
+  let host = '127.0.0.1'
+  let port = 6379
+  let password = undefined
+  let username = undefined
+  const isTls = redisUrl.startsWith('rediss://')
 
-  // Parse Redis URL for TLS (Upstash, Redis Cloud, etc.)
-  if (redisUrl.startsWith('rediss://')) {
-    const url = new URL(redisUrl)
-    return {
-      ...baseOptions,
-      host: url.hostname,
-      port: parseInt(url.port) || 6379,
-      password: url.password,
-      username: url.username || undefined,
-      tls: {
-        rejectUnauthorized: false,
-        servername: url.hostname
-      }
-    }
-  }
-
-  // Parse non-TLS Redis URL
   try {
     const url = new URL(redisUrl)
-    return {
-      ...baseOptions,
-      host: url.hostname,
-      port: parseInt(url.port) || 6379,
-      password: url.password || undefined,
-      username: url.username || undefined,
-    }
+    host = url.hostname
+    port = parseInt(url.port) || 6379
+    password = url.password || undefined
+    username = url.username || undefined
+
+    // Mask password for logging
+    const maskedPassword = password ? '****' : 'none'
+    console.log(`[Redis] Configuration: host=${host}, port=${port}, username=${username || 'none'}, password=${maskedPassword}, tls=${isTls}`)
   } catch (e) {
-    // Fallback if URL parsing fails
-    return baseOptions;
+    console.error('[Redis] Failed to parse REDIS_URL, using defaults', e)
   }
+
+  const options: RedisOptions = {
+    host,
+    port,
+    password,
+    username,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+    enableOfflineQueue: true,
+    connectTimeout: 30000,
+    keepAlive: 30000,
+    family: 4,
+    retryStrategy: (times) => {
+      return Math.min(times * 1000, 30000);
+    }
+  }
+
+  // Handle TLS more robustly
+  if (isTls || redisUrl.includes('tls=true')) {
+    options.tls = {
+      rejectUnauthorized: false,
+      servername: host
+    }
+  }
+
+  return options
 }
 
 // Queue name

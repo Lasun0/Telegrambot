@@ -16,14 +16,15 @@ if (!process.env.TELEGRAM_BOT_TOKEN) {
 }
 
 // Minimal health check server to satisfy Koyeb
-const PORT = process.env.PORT || 8000;
+const PORT = parseInt(process.env.PORT || '8000', 10);
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Healthy');
 });
 
-server.listen(PORT, () => {
-  console.log(`[Health] Simple health check server listening on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Health] Simple health check server listening on 0.0.0.0:${PORT}`);
+  console.log('[Health] Ready');
 });
 
 // Start both bot and worker
