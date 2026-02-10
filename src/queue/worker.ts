@@ -9,6 +9,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as http from 'http'
 import { getRedisOptions } from './videoQueue'
+import { startBot } from '../bot' // Added fallback to start bot
 import { VideoJob, JobProgress, JOB_STAGES } from './types'
 import { trimVideoWithFFmpeg } from '../lib/serverTrimmer'
 import { formatSummaryMessage, formatChaptersMessage } from '../bot/utils/messageFormatter'
@@ -581,8 +582,9 @@ if (require.main === module) {
     console.log('[Health] Ready');
   });
 
-  console.log('[Worker] Starting video processing worker...');
+  console.log('[Worker] Starting video processing worker and bot fallback...');
   startWorker();
+  startBot().catch(err => console.error('[Bot Fallback] Failed to start:', err));
 
   // Handle graceful shutdown
   process.on('SIGTERM', async () => {
