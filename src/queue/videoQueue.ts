@@ -17,20 +17,24 @@ function createRedisConnection(): IORedis {
   const baseOptions = {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
+    enableOfflineQueue: true,
+    lazyConnect: false,
+    keepAlive: 30000, // Keep connection alive
+    connectTimeout: 10000,
     retryStrategy: (times: number) => {
-      if (times > 3) {
-        console.error('[Redis] Max retry attempts reached')
+      const maxRetries = 10
+      if (times > maxRetries) {
+        console.error(`[Redis] Max retry attempts (${maxRetries}) reached, giving up`)
         return null
       }
-      const delay = Math.min(times * 200, 2000)
+      const delay = Math.min(times * 1000, 10000)
+      console.log(`[Redis] Retry attempt ${times}, waiting ${delay}ms`)
       return delay
     },
     reconnectOnError: (err: Error) => {
-      const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT']
-      if (targetErrors.some(e => err.message.includes(e))) {
-        return true
-      }
-      return false
+      console.log('[Redis] Reconnect on error triggered:', err.message)
+      const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE']
+      return targetErrors.some(e => err.message.includes(e))
     }
   }
 
@@ -44,24 +48,38 @@ function createRedisConnection(): IORedis {
       host: url.hostname,
       port: parseInt(url.port) || 6379,
       password: url.password,
+      username: url.username || undefined,
+      family: 4, // Force IPv4
       tls: {
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
+        servername: url.hostname
       }
     })
   } else {
-    connection = new IORedis(redisUrl, baseOptions)
+    connection = new IORedis(redisUrl, {
+      ...baseOptions,
+      family: 4 // Force IPv4
+    })
   }
 
   connection.on('error', (err) => {
-    console.error('[Redis] Connection error:', err.message)
+    console.error('[Redis] Error:', err.message)
   })
 
   connection.on('connect', () => {
-    console.log('[Redis] Connected successfully')
+    console.log('[Redis] TCP connection established')
+  })
+
+  connection.on('ready', () => {
+    console.log('[Redis] Connection ready for commands')
   })
 
   connection.on('close', () => {
-    console.log('[Redis] Connection closed')
+    console.warn('[Redis] Connection closed')
+  })
+
+  connection.on('reconnecting', () => {
+    console.log('[Redis] Reconnecting...')
   })
 
   return connection
