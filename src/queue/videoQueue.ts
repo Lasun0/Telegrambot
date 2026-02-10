@@ -9,6 +9,7 @@ import { VideoJob, QueueStatus } from './types'
 
 // Redis connection singleton
 let redisConnection: IORedis | null = null
+let connectionInitialized = false
 
 // Create a new connection with shared configuration
 function createRedisConnection(): IORedis {
@@ -20,22 +21,25 @@ function createRedisConnection(): IORedis {
     enableOfflineQueue: true,
     lazyConnect: false,
     keepAlive: 30000, // Keep connection alive
-    connectTimeout: 10000,
+    connectTimeout: 30000, // Increased timeout for slower connections
+    commandTimeout: 30000, // Add command timeout
     retryStrategy: (times: number) => {
-      const maxRetries = 10
+      const maxRetries = 20 // Increased retries
       if (times > maxRetries) {
-        console.error(`[Redis] Max retry attempts (${maxRetries}) reached, giving up`)
+        console.error(`[Redis] Max retry attempts reached`)
         return null
       }
-      const delay = Math.min(times * 1000, 10000)
-      console.log(`[Redis] Retry attempt ${times}, waiting ${delay}ms`)
+      const delay = Math.min(times * 2000, 30000) // Exponential backoff up to 30s
+      console.log(`[Redis] Retry attempt ${times}/${maxRetries}, waiting ${delay}ms`)
       return delay
     },
     reconnectOnError: (err: Error) => {
       console.log('[Redis] Reconnect on error triggered:', err.message)
-      const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE']
-      return targetErrors.some(e => err.message.includes(e))
-    }
+      const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'ECONNREFUSED']
+      return targetErrors.some(e => err.message.includes(e)) ? 1 : false
+    },
+    autoResubscribe: true,
+    autoResendUnfulfilledCommands: true
   }
 
   let connection: IORedis
@@ -63,31 +67,39 @@ function createRedisConnection(): IORedis {
   }
 
   connection.on('error', (err) => {
-    console.error('[Redis] Error:', err.message)
+    console.error('[Redis] Connection error:', err.message)
   })
 
   connection.on('connect', () => {
-    console.log('[Redis] TCP connection established')
+    console.log('[Redis] Connected successfully')
   })
 
   connection.on('ready', () => {
-    console.log('[Redis] Connection ready for commands')
+    console.log('[Redis] Ready to accept commands')
   })
 
   connection.on('close', () => {
-    console.warn('[Redis] Connection closed')
+    console.warn('[Redis] Connection closed, will attempt to reconnect')
   })
 
-  connection.on('reconnecting', () => {
-    console.log('[Redis] Reconnecting...')
+  connection.on('reconnecting', (delay: number) => {
+    console.log(`[Redis] Reconnecting in ${delay}ms...`)
+  })
+
+  connection.on('end', () => {
+    console.warn('[Redis] Connection ended')
   })
 
   return connection
 }
 
 export function getRedisConnection(): IORedis {
-  if (!redisConnection || redisConnection.status === 'end') {
+  if (!redisConnection || redisConnection.status === 'end' || redisConnection.status === 'close') {
+    if (connectionInitialized && redisConnection) {
+      console.log('[Redis] Recreating connection due to status:', redisConnection.status)
+    }
     redisConnection = createRedisConnection()
+    connectionInitialized = true
   }
   return redisConnection
 }
@@ -102,7 +114,7 @@ let queueEvents: QueueEvents | null = null
 export function getVideoQueue(): Queue<VideoJob> {
   if (!videoQueue) {
     videoQueue = new Queue<VideoJob>(QUEUE_NAME, {
-      connection: createRedisConnection(), // Create a new connection for the queue
+      connection: getRedisConnection(), // Reuse the shared connection
       defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -128,7 +140,7 @@ export function getVideoQueue(): Queue<VideoJob> {
 export function getQueueEvents(): QueueEvents {
   if (!queueEvents) {
     queueEvents = new QueueEvents(QUEUE_NAME, {
-      connection: createRedisConnection() // Create a new connection for events
+      connection: getRedisConnection() // Reuse the shared connection
     })
   }
 
