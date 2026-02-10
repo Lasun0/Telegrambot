@@ -26,38 +26,46 @@ export function getRedisOptions(): RedisOptions {
     password = url.password || undefined
     username = url.username || undefined
 
+    // Auto-detect TLS for Upstash or if protocol is rediss
+    const forceTls = redisUrl.startsWith('rediss://') || host.includes('upstash.io') || redisUrl.includes('tls=true')
+
     // Mask password for logging
     const maskedPassword = password ? '****' : 'none'
-    console.log(`[Redis] Configuration: host=${host}, port=${port}, username=${username || 'none'}, password=${maskedPassword}, tls=${isTls}`)
+    console.log(`[Redis] Configuration: host=${host}, port=${port}, username=${username || 'none'}, password=${maskedPassword}, tls=${forceTls}`)
+
+    const options: RedisOptions = {
+      host,
+      port,
+      password,
+      username,
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      enableOfflineQueue: true,
+      connectTimeout: 30000,
+      keepAlive: 5000, // More frequent keep-alive for cloud providers
+      family: 4,
+      enableAutoPipelining: true, // Recommended for performance/stability
+      retryStrategy: (times) => {
+        return Math.min(times * 1000, 30000);
+      }
+    }
+
+    if (forceTls) {
+      options.tls = {
+        rejectUnauthorized: false,
+        servername: host
+      }
+    }
+
+    return options
   } catch (e) {
     console.error('[Redis] Failed to parse REDIS_URL, using defaults', e)
-  }
-
-  const options: RedisOptions = {
-    host,
-    port,
-    password,
-    username,
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-    enableOfflineQueue: true,
-    connectTimeout: 30000,
-    keepAlive: 30000,
-    family: 4,
-    retryStrategy: (times) => {
-      return Math.min(times * 1000, 30000);
+    return {
+      host: '127.0.0.1',
+      port: 6379,
+      maxRetriesPerRequest: null
     }
   }
-
-  // Handle TLS more robustly
-  if (isTls || redisUrl.includes('tls=true')) {
-    options.tls = {
-      rejectUnauthorized: false,
-      servername: host
-    }
-  }
-
-  return options
 }
 
 // Queue name
