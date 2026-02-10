@@ -47,21 +47,24 @@ function getBot(): Telegraf {
  */
 async function sendProgressUpdate(chatId: number, messageId: number, progress: JobProgress): Promise<void> {
   const bot = getBot()
-  const stageInfo = JOB_STAGES[progress.stage]
+  const stageInfo = JOB_STAGES[progress.stage] || { emoji: '🔄', description: 'Processing' }
+
+  // Clean and escape message to prevent Markdown parsing errors
+  const safeMessage = progress.message.replace(/[_*[\]()]/g, '\\$&');
 
   const text = `${stageInfo.emoji} *${stageInfo.description}*\n\n` +
     `Progress: ${progress.progress}%\n` +
-    `${progress.message}` +
+    `${safeMessage}` +
     (progress.estimatedTime ? `\n\nEstimated time: ${progress.estimatedTime}` : '')
 
   try {
     await bot.telegram.editMessageText(chatId, messageId, undefined, text, {
       parse_mode: 'Markdown'
     })
-  } catch (error) {
-    // Ignore "message not modified" errors
-    if (!(error instanceof Error && error.message.includes('message is not modified'))) {
-      console.error('[Worker] Failed to send progress update:', error)
+  } catch (error: any) {
+    // Ignore "message not modified" and "message can't be edited" errors
+    if (!error.message.includes('message is not modified') && !error.message.includes("message can't be edited")) {
+      console.error('[Worker] Failed to send progress update:', error.message)
     }
   }
 }
