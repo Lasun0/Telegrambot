@@ -36,8 +36,13 @@ export async function handleVideoMessage(ctx: Context) {
   // 1. Check for Direct Link
   if (message.text && (message.text.startsWith('http://') || message.text.startsWith('https://'))) {
     isLink = true;
-    downloadUrl = message.text.trim();
-    fileName = path.basename(new URL(downloadUrl).pathname) || `video_${Date.now()}.mp4`;
+    const trimmedUrl = message.text.trim();
+    downloadUrl = trimmedUrl;
+    try {
+      fileName = path.basename(new URL(trimmedUrl).pathname) || `video_${Date.now()}.mp4`;
+    } catch (e) {
+      fileName = `video_${Date.now()}.mp4`;
+    }
     if (!fileName.includes('.')) fileName += '.mp4';
     fileSize = 0; // Unknown yet
     mimeType = 'video/mp4';
