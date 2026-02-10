@@ -10,6 +10,7 @@
     "lint": "next lint",
     "bot": "npx tsx scripts/start-bot.ts",
     "worker": "npx tsx src/queue/worker.ts",
+    "all": "npx tsx scripts/start-all.ts",
     "bot:prod": "node dist/scripts/start-bot.js",
     "worker:prod": "node dist/src/queue/worker.js",
     "build:bot": "npx tsc -p tsconfig.bot.json"

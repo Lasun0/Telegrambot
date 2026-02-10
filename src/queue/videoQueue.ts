@@ -10,41 +10,67 @@ import { VideoJob, QueueStatus } from './types'
 // Redis connection singleton
 let redisConnection: IORedis | null = null
 
-export function getRedisConnection(): IORedis {
-  if (!redisConnection) {
-    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
+// Create a new connection with shared configuration
+function createRedisConnection(): IORedis {
+  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
 
-    // Parse Redis URL for Upstash compatibility
-    if (redisUrl.startsWith('rediss://')) {
-      // TLS connection (Upstash)
-      const url = new URL(redisUrl)
-      redisConnection = new IORedis({
-        host: url.hostname,
-        port: parseInt(url.port) || 6379,
-        password: url.password,
-        tls: {
-          rejectUnauthorized: false
-        },
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false
-      })
-    } else {
-      // Standard Redis connection
-      redisConnection = new IORedis(redisUrl, {
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false
-      })
+  const baseOptions = {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+    retryStrategy: (times: number) => {
+      if (times > 3) {
+        console.error('[Redis] Max retry attempts reached')
+        return null
+      }
+      const delay = Math.min(times * 200, 2000)
+      return delay
+    },
+    reconnectOnError: (err: Error) => {
+      const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT']
+      if (targetErrors.some(e => err.message.includes(e))) {
+        return true
+      }
+      return false
     }
-
-    redisConnection.on('error', (err) => {
-      console.error('[Redis] Connection error:', err.message)
-    })
-
-    redisConnection.on('connect', () => {
-      console.log('[Redis] Connected successfully')
-    })
   }
 
+  let connection: IORedis
+
+  // Parse Redis URL for Upstash compatibility
+  if (redisUrl.startsWith('rediss://')) {
+    const url = new URL(redisUrl)
+    connection = new IORedis({
+      ...baseOptions,
+      host: url.hostname,
+      port: parseInt(url.port) || 6379,
+      password: url.password,
+      tls: {
+        rejectUnauthorized: false
+      }
+    })
+  } else {
+    connection = new IORedis(redisUrl, baseOptions)
+  }
+
+  connection.on('error', (err) => {
+    console.error('[Redis] Connection error:', err.message)
+  })
+
+  connection.on('connect', () => {
+    console.log('[Redis] Connected successfully')
+  })
+
+  connection.on('close', () => {
+    console.log('[Redis] Connection closed')
+  })
+
+  return connection
+}
+
+export function getRedisConnection(): IORedis {
+  if (!redisConnection || redisConnection.status === 'end') {
+    redisConnection = createRedisConnection()
+  }
   return redisConnection
 }
 
@@ -58,7 +84,7 @@ let queueEvents: QueueEvents | null = null
 export function getVideoQueue(): Queue<VideoJob> {
   if (!videoQueue) {
     videoQueue = new Queue<VideoJob>(QUEUE_NAME, {
-      connection: getRedisConnection(),
+      connection: createRedisConnection(), // Create a new connection for the queue
       defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -84,7 +110,7 @@ export function getVideoQueue(): Queue<VideoJob> {
 export function getQueueEvents(): QueueEvents {
   if (!queueEvents) {
     queueEvents = new QueueEvents(QUEUE_NAME, {
-      connection: getRedisConnection()
+      connection: createRedisConnection() // Create a new connection for events
     })
   }
 

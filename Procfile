@@ -1,1 +1,1 @@
-web: npx tsx scripts/start-bot.ts
+web: npx tsx scripts/start-all.ts

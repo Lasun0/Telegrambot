@@ -540,8 +540,11 @@ async function processJob(job: Job<VideoJob>): Promise<void> {
  * Start the worker
  */
 export function startWorker(): Worker<VideoJob> {
+  // Import createRedisConnection to create a dedicated connection for the worker
+  const { getRedisConnection } = require('./videoQueue')
+
   const worker = new Worker<VideoJob>(QUEUE_NAME, processJob, {
-    connection: getRedisConnection(),
+    connection: getRedisConnection(), // Worker gets its own connection
     concurrency: 1, // Process one video at a time
     limiter: {
       max: 1,
