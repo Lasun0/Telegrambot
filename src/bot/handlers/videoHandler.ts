@@ -19,44 +19,63 @@ if (!fs.existsSync(TEMP_DIR)) {
  * Robustly download from Google Drive handling large file confirmation
  */
 async function downloadFromGoogleDrive(url: string, destPath: string): Promise<number> {
-  // 1. First attempt to get the file or the confirmation page
+  console.log(`[Downloader] Starting Google Drive download: ${url}`);
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  };
+
+  // 1. Get the initial response
   let response = await axios({
     url,
     method: 'GET',
     responseType: 'stream',
     timeout: 60000,
+    headers
   });
 
-  // Check if we got an HTML confirmation page instead of a video
   const contentType = response.headers['content-type'] || '';
+  console.log(`[Downloader] Initial Content-Type: ${contentType}`);
+
+  // 2. Check if it's an HTML confirmation page
   if (contentType.includes('text/html')) {
-    // It's likely the "Large file" warning page. We need to find the "confirm" token.
-    // We'll read the first few KB of the stream to find the token
+    console.log('[Downloader] Detected HTML page, looking for confirmation token...');
+
+    // Download the HTML content fully to parse it
     const chunks: Buffer[] = [];
     for await (const chunk of response.data) {
       chunks.push(chunk);
-      if (chunks.reduce((acc, c) => acc + c.length, 0) > 50000) break; // Read enough for HTML
     }
     const html = Buffer.concat(chunks).toString();
+
+    // Look for the confirm token in the HTML
     const confirmMatch = html.match(/confirm=([a-zA-Z0-9_-]+)/);
 
     if (confirmMatch && confirmMatch[1]) {
       const token = confirmMatch[1];
-      const newUrl = new URL(url);
-      newUrl.searchParams.set('confirm', token);
+      console.log(`[Downloader] Found confirm token: ${token}`);
 
-      console.log(`[Downloader] Found Google Drive confirm token: ${token}`);
+      const downloadUrl = new URL(url);
+      downloadUrl.searchParams.set('confirm', token);
 
-      // Try again with the token
+      // 3. Make the actual download request with the token
       response = await axios({
-        url: newUrl.toString(),
+        url: downloadUrl.toString(),
         method: 'GET',
         responseType: 'stream',
         timeout: 60000,
+        headers
       });
+      console.log(`[Downloader] Final download started (Content-Type: ${response.headers['content-type']})`);
+    } else {
+      console.error('[Downloader] Failed to find confirmation token in HTML');
+      // If it's HTML but no token, it might be an error page
+      const errorMsg = html.length > 500 ? html.substring(0, 500) + '...' : html;
+      throw new Error(`Google Drive returned an HTML page instead of a video. Possible error: ${errorMsg}`);
     }
   }
 
+  // 4. Pipe the stream to the file
   const writer = fs.createWriteStream(destPath);
   response.data.pipe(writer);
 
@@ -68,7 +87,9 @@ async function downloadFromGoogleDrive(url: string, destPath: string): Promise<n
     });
   });
 
-  return fs.statSync(destPath).size;
+  const finalSize = fs.statSync(destPath).size;
+  console.log(`[Downloader] Download complete. Final size: ${(finalSize / (1024 * 1024)).toFixed(2)} MB`);
+  return finalSize;
 }
 
 export async function handleVideoMessage(ctx: Context) {
@@ -90,7 +111,19 @@ export async function handleVideoMessage(ctx: Context) {
     const trimmedUrl = message.text.trim();
     downloadUrl = trimmedUrl;
     try {
-      fileName = path.basename(new URL(trimmedUrl).pathname) || `video_${Date.now()}.mp4`;
+      // Use a cleaner filename for URL downloads
+      const urlObj = new URL(trimmedUrl);
+      fileName = path.basename(urlObj.pathname);
+
+      // Special handling for Google Drive IDs
+      if (trimmedUrl.includes('drive.google.com')) {
+        const idMatch = trimmedUrl.match(/[?&]id=([^&]+)/) || trimmedUrl.match(/\/d\/([^/]+)/);
+        if (idMatch) fileName = `drive_${idMatch[1]}.mp4`;
+      }
+
+      if (!fileName || fileName === '/' || fileName === '.') {
+        fileName = `video_${Date.now()}.mp4`;
+      }
     } catch (e) {
       fileName = `video_${Date.now()}.mp4`;
     }
@@ -133,6 +166,7 @@ export async function handleVideoMessage(ctx: Context) {
         method: 'GET',
         responseType: 'stream',
         timeout: 60000,
+        headers: { 'User-Agent': 'Mozilla/5.0' }
       });
 
       response.data.pipe(writer);
@@ -147,9 +181,11 @@ export async function handleVideoMessage(ctx: Context) {
     }
 
     if (fileSize === 0) throw new Error('Downloaded file is empty');
+
+    // Check limit after download if it was a link
     if (isLink && fileSize > URL_FILE_LIMIT) {
       if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
-      return ctx.telegram.editMessageText(ctx.chat?.id, statusMsg.message_id, undefined, '❌ Linked file is too large (Max 2GB).');
+      return ctx.telegram.editMessageText(ctx.chat?.id, statusMsg.message_id, undefined, `❌ The linked file is too large (${(fileSize / (1024*1024)).toFixed(1)}MB). Max allowed is 2GB.`);
     }
 
     const settings = getUserSettings(user.id);
@@ -177,12 +213,16 @@ export async function handleVideoMessage(ctx: Context) {
     );
 
   } catch (error: any) {
-    console.error('Error handling video:', error);
+    console.error('Error handling video:', error.message);
     await ctx.telegram.editMessageText(
       ctx.chat?.id,
       statusMsg.message_id,
       undefined,
-      '❌ Failed to process video. Please ensure it\'s a direct download link.'
+      `❌ Failed to process video: ${error.message}\n\nPlease ensure it's a direct download link.`
     );
+
+    // Cleanup if necessary
+    const videoPath = path.join(TEMP_DIR, `${fileId}_${fileName}`);
+    if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
   }
 }
